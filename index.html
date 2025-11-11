@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>시안 생성 도구 — v1.2 (Chrome Safe, WORKING)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .thumb{width:100%;height:120px;object-fit:cover}
+    .btn{border-radius:1rem;padding:.75rem 1rem;box-shadow:0 1px 2px rgb(0 0 0 / .06)}
+  </style>
+  <script defer>
+    function $(id){ return document.getElementById(id); }
+    function normDrive(link){
+      if(!link) return '';
+      try{
+        var m = link.match(/\/file\/d\/([A-Za-z0-9_-]{25,})/); if(m) return 'https://drive.google.com/uc?id='+m[1];
+        m = link.match(/[?&]id=([A-Za-z0-9_-]{25,})/);        if(m) return 'https://drive.google.com/uc?id='+m[1];
+        if(/drive\.google\.com\/uc\?id=/.test(link)) return link;
+        return link;
+      }catch(e){ return link; }
+    }
+    var STORE_KEY = 'design_bases_v1';
+    function loadBases(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY))||[] }catch(e){ return [] } }
+    function saveBases(list){ localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+    function showTab(which){
+      var onBase = which==='base';
+      $('baseSection').classList.toggle('hidden', !onBase);
+      $('genSection').classList.toggle('hidden', onBase);
+      $('tabBase').classList.toggle('bg-indigo-600', onBase);
+      $('tabBase').classList.toggle('text-white', onBase);
+      $('tabBase').classList.toggle('bg-white', !onBase);
+      $('tabGen').classList.toggle('bg-indigo-600', !onBase);
+      $('tabGen').classList.toggle('text-white', !onBase);
+      $('tabGen').classList.toggle('bg-white', onBase);
+    }
+    function renderBaseList(){
+      var list = loadBases();
+      var ul = $('baseList'); if(!ul) return;
+      ul.innerHTML = '';
+      for(var i=0;i<list.length;i++){
+        var b = list[i];
+        var li = document.createElement('li');
+        li.className = 'py-3 flex items-start justify-between gap-3';
+        li.innerHTML =
+          '<div>'+
+            '<div class="font-medium">'+(b.name||'')+'</div>'+
+            '<div class="text-xs text-gray-600">'+(b.product||'')+'</div>'+
+            '<div class="text-xs text-gray-500">'+((b.features||'').slice(0,80))+'</div>'+
+            '<div class="flex gap-2 mt-2 text-[10px] text-gray-500]">'+
+              ['img_base','ref1','ref2','ref3'].map(function(k){ return b[k]?('<a href="'+b[k]+'" target="_blank" class="underline">'+k+'</a>'):''; }).join('')+
+            '</div>'+
+          '</div>'+
+          '<div class="flex gap-2">'+
+            '<button data-edit="'+i+'" class="text-xs px-2 py-1 rounded-lg border">편집</button>'+
+            '<button data-del="'+i+'" class="text-xs px-2 py-1 rounded-lg border text-red-600">삭제</button>'+
+          '</div>';
+        ul.appendChild(li);
+      }
+      var sel = $('baseSelect');
+      if(sel){
+        sel.innerHTML = '<option value="">(선택)</option>' + list.map(function(b,i){ return '<option value="'+i+'">'+b.name+'</option>'; }).join('');
+      }
+    }
+    document.addEventListener('DOMContentLoaded', function(){
+      $('tabBase').addEventListener('click', function(){ showTab('base'); });
+      $('tabGen').addEventListener('click',  function(){ showTab('gen');  });
+      $('btnBaseSave').addEventListener('click', function(){
+        var b = {
+          name: $('b_name').value.trim(),
+          product: $('b_product').value.trim(),
+          features: $('b_features').value.trim(),
+          img_base: normDrive($('b_img_base').value.trim()),
+          ref1: normDrive($('b_ref1').value.trim()),
+          ref2: normDrive($('b_ref2').value.trim()),
+          ref3: normDrive($('b_ref3').value.trim()),
+          createdAt: Date.now()
+        };
+        if(!b.name){ alert('기본형 이름을 입력하세요'); return; }
+        var list = loadBases();
+        var i = -1; for(var j=0;j<list.length;j++){ if(list[j].name===b.name){ i=j; break; } }
+        if(i>=0) list[i] = b; else list.push(b);
+        saveBases(list); renderBaseList();
+        var toast = document.createElement('div');
+        toast.className = 'fixed z-50 top-5 right-5 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow space-x-2 flex items-center';
+        toast.innerHTML = '<span>✅ 기본형이 저장되었습니다</span> <button id="goGen" class="ml-3 px-2 py-1 bg-white text-emerald-700 rounded-lg text-xs">시안 생성으로 이동</button>';
+        document.body.appendChild(toast);
+        var removeToast = function(){ if(toast.parentNode){ toast.parentNode.removeChild(toast); } };
+        setTimeout(removeToast, 2500);
+        document.getElementById('goGen').addEventListener('click', function(){ showTab('gen'); removeToast(); });
+      });
+      $('btnBaseClear').addEventListener('click', function(){
+        ['b_name','b_product','b_features','b_img_base','b_ref1','b_ref2','b_ref3'].forEach(function(id){ var el=$(id); if(el) el.value=''; });
+      });
+      $('baseList').addEventListener('click', function(e){
+        var t = e.target; var list = loadBases();
+        if(t && t.dataset && t.dataset.del){ list.splice(Number(t.dataset.del),1); saveBases(list); renderBaseList(); return; }
+        if(t && t.dataset && t.dataset.edit){ var b = list[Number(t.dataset.edit)]; if(!b) return;
+          $('b_name').value = b.name || ''; $('b_product').value = b.product || ''; $('b_features').value = b.features || '';
+          $('b_img_base').value = b.img_base || ''; $('b_ref1').value = b.ref1 || ''; $('b_ref2').value = b.ref2 || ''; $('b_ref3').value = b.ref3 || '';
+          window.scrollTo({top:0, behavior:'smooth'});
+        }
+      });
+      $('btnExport').addEventListener('click', function(){
+        var blob = new Blob([JSON.stringify(loadBases(), null, 2)], {type:'application/json'});
+        var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href=url; a.download='bases.json'; a.click(); URL.revokeObjectURL(url);
+      });
+      $('importFile').addEventListener('change', function(e){
+        var f = e.target.files && e.target.files[0]; if(!f) return; var fr = new FileReader();
+        fr.onload = function(){ try{ var data = JSON.parse(fr.result); if(Object.prototype.toString.call(data)==='[object Array]'){ saveBases(data); renderBaseList(); } }catch(err){ alert('JSON을 읽을 수 없습니다'); } };
+        fr.readAsText(f);
+      });
+      $('baseSelect').addEventListener('change', function(){
+        var idx = Number($('baseSelect').value); var list = loadBases(); var b = list[idx];
+        var pv = $('preview'); if(pv) pv.innerHTML='';
+        if(!b) return;
+        $('product').value = b.product || '';
+        var imgs = [ {k:'img_base',label:'기본형'}, {k:'ref1',label:'레퍼1'}, {k:'ref2',label:'레퍼2'}, {k:'ref3',label:'레퍼3'} ];
+        var html = '';
+        for(var i=0;i<imgs.length;i++){ var it=imgs[i]; var url = b[it.k]? normDrive(b[it.k]) : '';
+          if(url){ html += "<div class='border rounded-xl overflow-hidden'><div class='p-1 text-[10px] text-gray-600'>"+it.label+"</div><img class='thumb' src='"+url+"' /></div>"; } }
+        if(pv) pv.innerHTML = html;
+      });
+      $('btnPresetInject').addEventListener('click', function(){
+        var idx = Number($('baseSelect').value); var list = loadBases(); var b = list[idx];
+        if(!b){ alert('기본형을 선택하세요'); return; }
+        $('product').value = b.product || '';
+      });
+      $('logoUrl').addEventListener('blur', function(){
+        var v = ($('logoUrl').value||'').trim(); var n = normDrive(v); if(n!==v) $('logoUrl').value = n; $('logoPreview').src = n || '';
+      });
+      $('logoFile').addEventListener('change', function(e){
+        var f = e.target.files && e.target.files[0]; if(!f) return; var url = URL.createObjectURL(f); $('logoPreview').src = url;
+      });
+      $('btnGenerate').addEventListener('click', function(){
+        var lang = $('language').value; var platform = $('platform').value;
+        var idx = Number($('baseSelect').value); var list = loadBases(); var b = list[idx] || {};
+        var product = ($('product').value||'').trim(); var logo = ($('logo').value||'').trim(); var copy = ($('copy').value||'').trim();
+        var logoUrl = normDrive(($('logoUrl') && $('logoUrl').value || '').trim());
+        var refs = [b.img_base,b.ref1,b.ref2,b.ref3].filter(function(u){ return !!u; }).map(normDrive);
+        if(logoUrl) refs.push(logoUrl);
+        var urlsBlock = refs.join('\n');
+        function body_ko(){
+          var parts=[]; parts.push((product?product+' ':'')+'제품 시안 이미지를 생성한다.');
+          if(b.features) parts.push('제품 특징은 '+b.features+' 이다.');
+          parts.push('위의 참조 이미지를 사용하여 형태, 재질/표면 질감, 조명/배경 무드를 일치시켜라.');
+          if(logo) parts.push('로고 텍스트: '+logo+' 를 선명하고 왜곡 없이 적용한다.');
+          if(copy) parts.push('문구 텍스트: '+copy+' 를 인쇄/각인 영역에 배치한다.');
+          parts.push('과장된 스타일은 피하고 실제 촬영 같은 고품질 스튜디오 묘사로 만든다.');
+          parts.push('배경은 깔끔하게 유지하고 제품이 중심이 되게 한다.');
+          parts.push('최종 결과는 단일 정지 이미지 한 장을 생성한다.');
+          return parts.join(' ');
+        }
+        function body_en(){
+          var parts=[]; parts.push('Generate a realistic product mockup image for '+(product||'the product')+'.');
+          if(b.features) parts.push('Respect these features: '+b.features+'.');
+          parts.push('Use the reference images above to match shape, material/texture, and lighting/background mood.');
+          if(logo) parts.push('Apply the logo text "'+logo+'" clearly without distortion.');
+          if(copy) parts.push('Place the text "'+copy+'" on the designated print/engraving area.');
+          parts.push('Avoid surreal effects; render as a studio-quality photographic look.');
+          parts.push('Keep the background clean and let the product be the focus.');
+          parts.push('Output a single still image.');
+          return parts.join(' ');
+        }
+        function body_vi(){
+          var parts=[]; parts.push('Tạo một mockup sản phẩm chân thực cho '+(product||'sản phẩm')+'.');
+          if(b.features) parts.push('Giữ đúng các đặc điểm: '+b.features+'.');
+          parts.push('Dùng các ảnh tham chiếu ở trên để khớp hình dáng, chất liệu/bề mặt và ánh sáng/phông nền.');
+          if(logo) parts.push('Áp dụng logo "'+logo+'" rõ ràng, không méo.');
+          if(copy) parts.push('Đặt chữ "'+copy+'" vào vùng in/khắc quy định.');
+          parts.push('Tránh hiệu ứng siêu thực; thể hiện như ảnh chụp studio chất lượng cao.');
+          parts.push('Giữ nền sạch, tập trung vào sản phẩm.');
+          parts.push('Xuất một ảnh duy nhất.');
+          return parts.join(' ');
+        }
+        var body = (lang==='en'?body_en:lang==='vi'?body_vi:body_ko)();
+        var finalPrompt = (urlsBlock ? (urlsBlock+'\n') : '') + body;
+        $('output').value = finalPrompt;
+      });
+      $('btnCopy').addEventListener('click', function(){
+        var text = $('output').value || '';
+        navigator.clipboard.writeText(text).then(function(){
+          var old = $('btnCopy').textContent; $('btnCopy').textContent = '복사 완료!'; setTimeout(function(){ $('btnCopy').textContent = old; }, 1200);
+        });
+      });
+      renderBaseList();
+      showTab('base');
+    });
+  </script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <main class="max-w-5xl mx-auto p-6">
+    <header class="mb-6">
+      <h1 class="text-3xl font-bold">시안 생성 도구</h1>
+      <p class="text-sm text-gray-600 mt-2">기본형 관리 → 시안 생성 프롬프트 (Gemini / Google AI Studio Nano)</p>
+    </header>
+    <div class="flex gap-2 mb-4">
+      <button id="tabBase" class="btn bg-indigo-600 text-white border font-medium">기본형 관리</button>
+      <button id="tabGen"  class="btn bg-white border font-medium">시안 생성 프롬프트</button>
+    </div>
+    <section id="baseSection">
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="bg-white p-4 rounded-2xl shadow space-y-3">
+          <h2 class="text-lg font-semibold">제품 기본형 등록</h2>
+          <input id="b_name" class="w-full border rounded-xl p-2" placeholder="기본형 이름 (예: 아크릴 야광봉 V1)" />
+          <input id="b_product" class="w-full border rounded-xl p-2" placeholder="제품명 (예: 아크릴 야광봉)" />
+          <textarea id="b_features" class="w-full border rounded-xl p-2 h-24" placeholder="제품 특징/형태/재질/가공 요약"></textarea>
+          <div class="grid gap-2">
+            <label class="text-xs font-semibold">기본형 이미지 URL</label>
+            <input id="b_img_base" class="w-full border rounded-xl p-2" placeholder="https://drive.google.com/..." />
+            <label class="text-xs font-semibold">참고 레퍼런스 1</label>
+            <input id="b_ref1" class="w-full border rounded-xl p-2" placeholder="https://drive.google.com/..." />
+            <label class="text-xs font-semibold">참고 레퍼런스 2</label>
+            <input id="b_ref2" class="w-full border rounded-xl p-2" placeholder="https://drive.google.com/..." />
+            <label class="text-xs font-semibold">참고 레퍼런스 3</label>
+            <input id="b_ref3" class="w-full border rounded-xl p-2" placeholder="https://drive.google.com/..." />
+          </div>
+          <div class="flex gap-2">
+            <button id="btnBaseSave"  class="btn bg-indigo-600 text-white">저장</button>
+            <button id="btnBaseClear" class="btn bg-white border">초기화</button>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <h2 class="text-lg font-semibold mb-2">등록된 기본형</h2>
+          <ul id="baseList" class="divide-y"></ul>
+          <div class="flex gap-2 mt-3 text-sm">
+            <button id="btnExport" class="px-3 py-2 rounded-xl bg-white border">내보내기 (JSON)</button>
+            <label class="px-3 py-2 rounded-xl bg-white border cursor-pointer">가져오기 (JSON)
+              <input id="importFile" type="file" accept="application/json" class="hidden" />
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="genSection" class="hidden">
+      <div class="grid md:grid-cols-3 gap-4 mb-4">
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <label class="block text-xs font-semibold mb-2">모델/플랫폼</label>
+          <select id="platform" class="w-full border rounded-xl p-2">
+            <option value="gemini">Gemini (Google AI Studio)</option>
+            <option value="nano">Google AI Studio — Nano</option>
+          </select>
+        </div>
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <label class="block text-xs font-semibold mb-2">프롬프트 언어</label>
+          <select id="language" class="w-full border rounded-xl p-2">
+            <option value="ko">한국어</option>
+            <option value="en">English</option>
+            <option value="vi">Tiếng Việt</option>
+          </select>
+        </div>
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <label class="block text-xs font-semibold mb-2">제품 기본형 선택</label>
+          <select id="baseSelect" class="w-full border rounded-xl p-2"></select>
+        </div>
+      </div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="space-y-4">
+          <div class="bg-white p-4 rounded-2xl shadow">
+            <label class="block text-xs font-semibold mb-2">제품명</label>
+            <input id="product" class="w-full border rounded-xl p-2" placeholder="기본형에서 불러오기/수정" />
+          </div>
+          <div class="bg-white p-4 rounded-2xl shadow">
+            <label class="block text-xs font-semibold mb-2">로고</label>
+            <input id="logo" class="w-full border rounded-xl p-2" placeholder="예: BVLGARI / STARBUCKS" />
+          </div>
+          <div class="bg-white p-4 rounded-2xl shadow">
+            <label class="block text-xs font-semibold mb-2">텍스트(문구)</label>
+            <input id="copy" class="w-full border rounded-xl p-2" placeholder="예: FOREVER / NIGHT GREEN" />
+          </div>
+        </div>
+        <div class="space-y-4">
+          <div class="bg-white p-4 rounded-2xl shadow">
+            <label class="block text-xs font-semibold mb-2">기본형/레퍼런스 미리보기</label>
+            <div id="preview" class="grid grid-cols-2 gap-2 text-xs"></div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl shadow">
+            <label class="block text-xs font-semibold mb-2">옵션</label>
+            <label class="inline-flex items-center gap-2 text-xs">
+              <input id="optStructured" type="checkbox" class="rounded" checked>
+              Gemini에 맞춘 구조화 프롬프트(권장)
+            </label>
+          </div>
+          <div class="bg-white p-4 rounded-2xl shadow">
+            <label class="block text-xs font-semibold mb-2">로고 이미지 (URL/업로드)</label>
+            <input id="logoUrl" class="w-full border rounded-xl p-2 mb-2" placeholder="https://drive.google.com/... (공유: 링크 있는 모든 사용자 보기)" />
+            <input id="logoFile" type="file" accept="image/*" class="w-full border rounded-xl p-2" />
+            <p class="text-[11px] text-gray-500 mt-2">URL은 프롬프트에 포함됩니다. 파일 업로드는 미리보기만 제공하며, 외부에서 접근 가능한 URL이 필요하면 Google Drive에 업로드 후 공유 링크를 붙여넣어 주세요.</p>
+            <div class="grid grid-cols-1 gap-2 mt-2">
+              <img id="logoPreview" class="thumb border rounded-xl" alt="logo preview" />
+            </div>
+          </div>
+        </div>
+      </div>
+      <section class="mt-6 grid md:grid-cols-3 gap-4">
+        <button id="btnGenerate" class="btn bg-indigo-600 text-white">프롬프트 생성</button>
+        <button id="btnCopy"     class="btn bg-white border">복사하기</button>
+        <button id="btnPresetInject" class="btn bg-gray-900 text-white">기본형 값 주입</button>
+      </section>
+      <section class="mt-6">
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <label class="block text-xs font-semibold mb-2">생성된 프롬프트</label>
+          <textarea id="output" class="w-full border rounded-xl p-3 h-72 font-mono text-sm" readonly placeholder="여기에 결과가 표시됩니다"></textarea>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">* 기본형에 등록한 이미지 URL(기본/레퍼런스1~3)과 로고 URL(있을 시)을 자동으로 포함합니다.</p>
+      </section>
+    </section>
+    <footer class="mt-10 text-center text-xs text-gray-500">© 2025 시안 생성 도구 — v1.2 (WORKING)</footer>
+  </main>
+</body>
+</html>
