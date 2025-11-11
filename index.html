@@ -3,26 +3,58 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>시안 생성 도구 — v1.2 (Chrome Safe, WORKING)</title>
+  <title>시안 생성 도구 — v1.3 (Worker Integrated)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .thumb{width:100%;height:120px;object-fit:cover}
     .btn{border-radius:1rem;padding:.75rem 1rem;box-shadow:0 1px 2px rgb(0 0 0 / .06)}
   </style>
   <script defer>
+    // ⚠️ 이 부분을 반드시 자신의 Cloudflare Worker URL로 변경하세요.
+    const WORKER_URL = 'https://YOUR-WORKER-NAME.YOUR-DOMAIN.workers.dev'; 
+    
     function $(id){ return document.getElementById(id); }
     function normDrive(link){
       if(!link) return '';
       try{
         var m = link.match(/\/file\/d\/([A-Za-z0-9_-]{25,})/); if(m) return 'https://drive.google.com/uc?id='+m[1];
-        m = link.match(/[?&]id=([A-Za-z0-9_-]{25,})/);        if(m) return 'https://drive.google.com/uc?id='+m[1];
+        m = link.match(/[?&]id=([A-Za-z0-9_-]{25,})/);        if(m) return 'https://drive.google.com/uc?id='+m[1];
         if(/drive\.google\.com\/uc\?id=/.test(link)) return link;
         return link;
       }catch(e){ return link; }
     }
-    var STORE_KEY = 'design_bases_v1';
-    function loadBases(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY))||[] }catch(e){ return [] } }
-    function saveBases(list){ localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+    
+    // 🌐 Worker에서 기본형 리스트를 불러오는 비동기 함수
+    async function loadBases(){ 
+      try{ 
+        const response = await fetch(WORKER_URL + '/bases');
+        if(response.ok) {
+          const data = await response.json();
+          if(Object.prototype.toString.call(data) === '[object Array]') {
+            return data;
+          }
+        }
+      }catch(e){ 
+        console.error('Worker에서 기본형 로드 실패:', e);
+      }
+      return []; // 실패 시 빈 배열 반환
+    }
+    
+    // 🌐 Worker로 기본형 리스트를 저장하는 비동기 함수
+    async function saveBases(list){ 
+      try{
+        const response = await fetch(WORKER_URL + '/save-bases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: list })
+        });
+        return response.ok;
+      }catch(e){
+        console.error('Worker에 기본형 저장 실패:', e);
+        return false;
+      }
+    }
+    
     function showTab(which){
       var onBase = which==='base';
       $('baseSection').classList.toggle('hidden', !onBase);
@@ -34,8 +66,15 @@
       $('tabGen').classList.toggle('text-white', !onBase);
       $('tabGen').classList.toggle('bg-white', onBase);
     }
-    function renderBaseList(){
-      var list = loadBases();
+    
+    let currentBases = []; // 현재 로드된 기본형 데이터를 저장할 전역 변수
+    
+    // 기본형 리스트를 렌더링하고 드롭다운 메뉴를 업데이트하는 함수
+    async function renderBaseList(shouldReload = false){
+      if(shouldReload) {
+        currentBases = await loadBases();
+      }
+      var list = currentBases;
       var ul = $('baseList'); if(!ul) return;
       ul.innerHTML = '';
       for(var i=0;i<list.length;i++){
@@ -44,16 +83,16 @@
         li.className = 'py-3 flex items-start justify-between gap-3';
         li.innerHTML =
           '<div>'+
-            '<div class="font-medium">'+(b.name||'')+'</div>'+
-            '<div class="text-xs text-gray-600">'+(b.product||'')+'</div>'+
-            '<div class="text-xs text-gray-500">'+((b.features||'').slice(0,80))+'</div>'+
-            '<div class="flex gap-2 mt-2 text-[10px] text-gray-500]">'+
-              ['img_base','ref1','ref2','ref3'].map(function(k){ return b[k]?('<a href="'+b[k]+'" target="_blank" class="underline">'+k+'</a>'):''; }).join('')+
-            '</div>'+
+          '  <div class="font-medium">'+(b.name||'')+'</div>'+
+          '  <div class="text-xs text-gray-600">'+(b.product||'')+'</div>'+
+          '  <div class="text-xs text-gray-500">'+((b.features||'').slice(0,80))+'</div>'+
+          '  <div class="flex gap-2 mt-2 text-[10px] text-gray-500]">'+
+          ['img_base','ref1','ref2','ref3'].map(function(k){ return b[k]?('<a href="'+b[k]+'" target="_blank" class="underline">'+k+'</a>'):''; }).join('')+
+          '  </div>'+
           '</div>'+
           '<div class="flex gap-2">'+
-            '<button data-edit="'+i+'" class="text-xs px-2 py-1 rounded-lg border">편집</button>'+
-            '<button data-del="'+i+'" class="text-xs px-2 py-1 rounded-lg border text-red-600">삭제</button>'+
+          '  <button data-edit="'+i+'" class="text-xs px-2 py-1 rounded-lg border">편집</button>'+
+          '  <button data-del="'+i+'" class="text-xs px-2 py-1 rounded-lg border text-red-600">삭제</button>'+
           '</div>';
         ul.appendChild(li);
       }
@@ -62,10 +101,18 @@
         sel.innerHTML = '<option value="">(선택)</option>' + list.map(function(b,i){ return '<option value="'+i+'">'+b.name+'</option>'; }).join('');
       }
     }
-    document.addEventListener('DOMContentLoaded', function(){
+    
+    document.addEventListener('DOMContentLoaded', async function(){
+      // 초기 데이터 로드 및 렌더링
+      currentBases = await loadBases();
+      renderBaseList();
+      showTab('base');
+      
       $('tabBase').addEventListener('click', function(){ showTab('base'); });
-      $('tabGen').addEventListener('click',  function(){ showTab('gen');  });
-      $('btnBaseSave').addEventListener('click', function(){
+      $('tabGen').addEventListener('click',  function(){ showTab('gen');  });
+      
+      // 저장 버튼 이벤트 (Worker 호출로 변경)
+      $('btnBaseSave').addEventListener('click', async function(){
         var b = {
           name: $('b_name').value.trim(),
           product: $('b_product').value.trim(),
@@ -77,41 +124,116 @@
           createdAt: Date.now()
         };
         if(!b.name){ alert('기본형 이름을 입력하세요'); return; }
-        var list = loadBases();
-        var i = -1; for(var j=0;j<list.length;j++){ if(list[j].name===b.name){ i=j; break; } }
-        if(i>=0) list[i] = b; else list.push(b);
-        saveBases(list); renderBaseList();
-        var toast = document.createElement('div');
-        toast.className = 'fixed z-50 top-5 right-5 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow space-x-2 flex items-center';
-        toast.innerHTML = '<span>✅ 기본형이 저장되었습니다</span> <button id="goGen" class="ml-3 px-2 py-1 bg-white text-emerald-700 rounded-lg text-xs">시안 생성으로 이동</button>';
-        document.body.appendChild(toast);
-        var removeToast = function(){ if(toast.parentNode){ toast.parentNode.removeChild(toast); } };
-        setTimeout(removeToast, 2500);
-        document.getElementById('goGen').addEventListener('click', function(){ showTab('gen'); removeToast(); });
+        
+        var list = currentBases;
+        var i = -1; // 기존 목록에서 이름이 같은 기본형 찾기 (업데이트)
+        for(var j=0;j<list.length;j++){ if(list[j].name===b.name){ i=j; break; } }
+        
+        if(i>=0) list[i] = b; else list.push(b); // 업데이트 또는 추가
+        
+        // 🌐 Worker에 저장 요청
+        const isSaved = await saveBases(list); 
+
+        if(isSaved){
+          currentBases = list; // 성공 시 전역 변수 업데이트
+          renderBaseList(false); // 로드 없이 화면만 업데이트
+          
+          var toast = document.createElement('div');
+          toast.className = 'fixed z-50 top-5 right-5 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow space-x-2 flex items-center';
+          toast.innerHTML = '<span>✅ 기본형이 저장되었습니다</span> <button id="goGen" class="ml-3 px-2 py-1 bg-white text-emerald-700 rounded-lg text-xs">시안 생성으로 이동</button>';
+          document.body.appendChild(toast);
+          var removeToast = function(){ if(toast.parentNode){ toast.parentNode.removeChild(toast); } };
+          setTimeout(removeToast, 2500);
+          document.getElementById('goGen').addEventListener('click', function(){ showTab('gen'); removeToast(); });
+        } else {
+          alert('기본형 저장에 실패했습니다. Worker URL과 설정을 확인하세요.');
+        }
       });
+      
       $('btnBaseClear').addEventListener('click', function(){
         ['b_name','b_product','b_features','b_img_base','b_ref1','b_ref2','b_ref3'].forEach(function(id){ var el=$(id); if(el) el.value=''; });
       });
-      $('baseList').addEventListener('click', function(e){
-        var t = e.target; var list = loadBases();
-        if(t && t.dataset && t.dataset.del){ list.splice(Number(t.dataset.del),1); saveBases(list); renderBaseList(); return; }
-        if(t && t.dataset && t.dataset.edit){ var b = list[Number(t.dataset.edit)]; if(!b) return;
+      
+      // 목록 편집/삭제 이벤트 (Worker 호출로 변경)
+      $('baseList').addEventListener('click', async function(e){
+        var t = e.target; var list = currentBases;
+        
+        // 삭제
+        if(t && t.dataset && t.dataset.del){ 
+          list.splice(Number(t.dataset.del),1); 
+          const isSaved = await saveBases(list);
+          if(isSaved) {
+            currentBases = list;
+            renderBaseList(false);
+          } else {
+            alert('삭제에 실패했습니다.');
+          }
+          return; 
+        }
+        
+        // 편집
+        if(t && t.dataset && t.dataset.edit){ 
+          var b = list[Number(t.dataset.edit)]; if(!b) return;
           $('b_name').value = b.name || ''; $('b_product').value = b.product || ''; $('b_features').value = b.features || '';
           $('b_img_base').value = b.img_base || ''; $('b_ref1').value = b.ref1 || ''; $('b_ref2').value = b.ref2 || ''; $('b_ref3').value = b.ref3 || '';
           window.scrollTo({top:0, behavior:'smooth'});
         }
       });
-      $('btnExport').addEventListener('click', function(){
-        var blob = new Blob([JSON.stringify(loadBases(), null, 2)], {type:'application/json'});
-        var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href=url; a.download='bases.json'; a.click(); URL.revokeObjectURL(url);
-      });
+      
+      // 가져오기 (JSON) 기능은 Worker 연동 방식과 충돌하므로 제거하거나, Worker에 저장하도록 변경해야 합니다.
+      // 여기서는 로컬에서 읽어와 Worker에 저장하는 방식으로 수정합니다.
       $('importFile').addEventListener('change', function(e){
         var f = e.target.files && e.target.files[0]; if(!f) return; var fr = new FileReader();
-        fr.onload = function(){ try{ var data = JSON.parse(fr.result); if(Object.prototype.toString.call(data)==='[object Array]'){ saveBases(data); renderBaseList(); } }catch(err){ alert('JSON을 읽을 수 없습니다'); } };
+        fr.onload = async function(){ 
+          try{ 
+            var data = JSON.parse(fr.result); 
+            if(Object.prototype.toString.call(data)==='[object Array]'){ 
+              const isSaved = await saveBases(data);
+              if(isSaved){
+                currentBases = data; 
+                renderBaseList(false); 
+                alert('가져오기 및 저장 완료.');
+              } else {
+                alert('Worker 저장에 실패했습니다.');
+              }
+            } 
+          }catch(err){ 
+            alert('JSON을 읽을 수 없습니다'); 
+          } 
+        };
         fr.readAsText(f);
       });
+      
+      // 로고 파일 업로드 (Worker 호출로 변경)
+      $('logoFile').addEventListener('change', async function(e){
+        var f = e.target.files && e.target.files[0]; if(!f) return;
+        
+        // 1. 미리보기
+        var url = URL.createObjectURL(f); $('logoPreview').src = url;
+        
+        // 2. Worker에 파일 업로드
+        const formData = new FormData();
+        formData.append('file', f);
+
+        const res = await fetch(WORKER_URL + '/upload?dir=logos', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          // 3. 반환된 raw URL을 logoUrl 입력 필드에 설정
+          $('logoUrl').value = result.url;
+          alert('로고 파일 업로드 완료. URL이 입력 필드에 자동 입력되었습니다.');
+        } else {
+          alert('로고 파일 업로드 실패');
+        }
+      });
+      
+      // --------------------------------------------------------------------------------
+      // 기존 로직 유지 (데이터만 currentBases에서 가져옴)
       $('baseSelect').addEventListener('change', function(){
-        var idx = Number($('baseSelect').value); var list = loadBases(); var b = list[idx];
+        var idx = Number($('baseSelect').value); var list = currentBases; var b = list[idx];
         var pv = $('preview'); if(pv) pv.innerHTML='';
         if(!b) return;
         $('product').value = b.product || '';
@@ -121,20 +243,21 @@
           if(url){ html += "<div class='border rounded-xl overflow-hidden'><div class='p-1 text-[10px] text-gray-600'>"+it.label+"</div><img class='thumb' src='"+url+"' /></div>"; } }
         if(pv) pv.innerHTML = html;
       });
+      
       $('btnPresetInject').addEventListener('click', function(){
-        var idx = Number($('baseSelect').value); var list = loadBases(); var b = list[idx];
+        var idx = Number($('baseSelect').value); var list = currentBases; var b = list[idx];
         if(!b){ alert('기본형을 선택하세요'); return; }
         $('product').value = b.product || '';
       });
+      
       $('logoUrl').addEventListener('blur', function(){
         var v = ($('logoUrl').value||'').trim(); var n = normDrive(v); if(n!==v) $('logoUrl').value = n; $('logoPreview').src = n || '';
       });
-      $('logoFile').addEventListener('change', function(e){
-        var f = e.target.files && e.target.files[0]; if(!f) return; var url = URL.createObjectURL(f); $('logoPreview').src = url;
-      });
+      
+      // 프롬프트 생성 로직은 변경 없음
       $('btnGenerate').addEventListener('click', function(){
         var lang = $('language').value; var platform = $('platform').value;
-        var idx = Number($('baseSelect').value); var list = loadBases(); var b = list[idx] || {};
+        var idx = Number($('baseSelect').value); var list = currentBases; var b = list[idx] || {};
         var product = ($('product').value||'').trim(); var logo = ($('logo').value||'').trim(); var copy = ($('copy').value||'').trim();
         var logoUrl = normDrive(($('logoUrl') && $('logoUrl').value || '').trim());
         var refs = [b.img_base,b.ref1,b.ref2,b.ref3].filter(function(u){ return !!u; }).map(normDrive);
@@ -177,14 +300,14 @@
         var finalPrompt = (urlsBlock ? (urlsBlock+'\n') : '') + body;
         $('output').value = finalPrompt;
       });
+      
       $('btnCopy').addEventListener('click', function(){
         var text = $('output').value || '';
         navigator.clipboard.writeText(text).then(function(){
           var old = $('btnCopy').textContent; $('btnCopy').textContent = '복사 완료!'; setTimeout(function(){ $('btnCopy').textContent = old; }, 1200);
         });
       });
-      renderBaseList();
-      showTab('base');
+      // --------------------------------------------------------------------------------
     });
   </script>
 </head>
@@ -192,11 +315,11 @@
   <main class="max-w-5xl mx-auto p-6">
     <header class="mb-6">
       <h1 class="text-3xl font-bold">시안 생성 도구</h1>
-      <p class="text-sm text-gray-600 mt-2">기본형 관리 → 시안 생성 프롬프트 (Gemini / Google AI Studio Nano)</p>
+      <p class="text-sm text-gray-600 mt-2">기본형 관리 (GitHub 영구 저장) → 시안 생성 프롬프트 (Gemini / Google AI Studio Nano)</p>
     </header>
     <div class="flex gap-2 mb-4">
       <button id="tabBase" class="btn bg-indigo-600 text-white border font-medium">기본형 관리</button>
-      <button id="tabGen"  class="btn bg-white border font-medium">시안 생성 프롬프트</button>
+      <button id="tabGen"  class="btn bg-white border font-medium">시안 생성 프롬프트</button>
     </div>
     <section id="baseSection">
       <div class="grid md:grid-cols-2 gap-4">
@@ -216,7 +339,7 @@
             <input id="b_ref3" class="w-full border rounded-xl p-2" placeholder="https://drive.google.com/..." />
           </div>
           <div class="flex gap-2">
-            <button id="btnBaseSave"  class="btn bg-indigo-600 text-white">저장</button>
+            <button id="btnBaseSave"  class="btn bg-indigo-600 text-white">저장</button>
             <button id="btnBaseClear" class="btn bg-white border">초기화</button>
           </div>
         </div>
@@ -224,8 +347,7 @@
           <h2 class="text-lg font-semibold mb-2">등록된 기본형</h2>
           <ul id="baseList" class="divide-y"></ul>
           <div class="flex gap-2 mt-3 text-sm">
-            <button id="btnExport" class="px-3 py-2 rounded-xl bg-white border">내보내기 (JSON)</button>
-            <label class="px-3 py-2 rounded-xl bg-white border cursor-pointer">가져오기 (JSON)
+            <label class="px-3 py-2 rounded-xl bg-white border cursor-pointer">가져오기 (JSON) 후 저장
               <input id="importFile" type="file" accept="application/json" class="hidden" />
             </label>
           </div>
@@ -285,7 +407,7 @@
             <label class="block text-xs font-semibold mb-2">로고 이미지 (URL/업로드)</label>
             <input id="logoUrl" class="w-full border rounded-xl p-2 mb-2" placeholder="https://drive.google.com/... (공유: 링크 있는 모든 사용자 보기)" />
             <input id="logoFile" type="file" accept="image/*" class="w-full border rounded-xl p-2" />
-            <p class="text-[11px] text-gray-500 mt-2">URL은 프롬프트에 포함됩니다. 파일 업로드는 미리보기만 제공하며, 외부에서 접근 가능한 URL이 필요하면 Google Drive에 업로드 후 공유 링크를 붙여넣어 주세요.</p>
+            <p class="text-[11px] text-gray-500 mt-2">URL은 프롬프트에 포함됩니다. **파일 업로드 시 Worker를 통해 GitHub에 저장되고 URL이 자동 입력됩니다.**</p>
             <div class="grid grid-cols-1 gap-2 mt-2">
               <img id="logoPreview" class="thumb border rounded-xl" alt="logo preview" />
             </div>
@@ -294,7 +416,7 @@
       </div>
       <section class="mt-6 grid md:grid-cols-3 gap-4">
         <button id="btnGenerate" class="btn bg-indigo-600 text-white">프롬프트 생성</button>
-        <button id="btnCopy"     class="btn bg-white border">복사하기</button>
+        <button id="btnCopy"     class="btn bg-white border">복사하기</button>
         <button id="btnPresetInject" class="btn bg-gray-900 text-white">기본형 값 주입</button>
       </section>
       <section class="mt-6">
@@ -305,7 +427,7 @@
         <p class="text-xs text-gray-500 mt-2">* 기본형에 등록한 이미지 URL(기본/레퍼런스1~3)과 로고 URL(있을 시)을 자동으로 포함합니다.</p>
       </section>
     </section>
-    <footer class="mt-10 text-center text-xs text-gray-500">© 2025 시안 생성 도구 — v1.2 (WORKING)</footer>
+    <footer class="mt-10 text-center text-xs text-gray-500">© 2025 시안 생성 도구 — v1.3 (Worker Integrated)</footer>
   </main>
 </body>
 </html>
